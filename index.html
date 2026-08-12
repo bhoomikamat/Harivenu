@@ -61,7 +61,7 @@
     <div id="canvas-container"></div>
 
     <div id="mini-info">
-        Drag to orbit &middot; Scroll to zoom &middot; Click a block for details<br>
+        Drag to orbit &middot; Pinch/scroll to zoom &middot; Tap or click a block for details<br>
         Press <strong>L</strong> to toggle labels
     </div>
 
@@ -547,11 +547,11 @@
 
         // --- Raycasting Interactive Input Processing ---
         const infoTooltipBox = document.getElementById('data-tooltip');
-        window.addEventListener('click', handleModelClick, false);
 
-        function handleModelClick(event) {
-            mouseVector.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouseVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        // Core hit-test logic, shared by mouse clicks and touch taps.
+        function handleInteraction(clientX, clientY) {
+            mouseVector.x = (clientX / window.innerWidth) * 2 - 1;
+            mouseVector.y = -(clientY / window.innerHeight) * 2 + 1;
 
             raycaster.setFromCamera(mouseVector, camera);
             const intersectedElements = raycaster.intersectObjects(clickableObjects);
@@ -569,12 +569,56 @@
 
                 infoTooltipBox.innerHTML = builtContentHTML;
                 infoTooltipBox.style.display = 'block';
-                infoTooltipBox.style.left = `${event.clientX + 15}px`;
-                infoTooltipBox.style.top = `${event.clientY + 15}px`;
+
+                // Keep the tooltip on-screen on narrow mobile viewports instead of
+                // running off the right/bottom edge near the tapped point.
+                const tooltipWidth = 250;
+                let left = clientX + 15;
+                let top = clientY + 15;
+                if (left + tooltipWidth > window.innerWidth) left = clientX - tooltipWidth - 15;
+                if (top + 150 > window.innerHeight) top = Math.max(10, window.innerHeight - 160);
+                infoTooltipBox.style.left = `${left}px`;
+                infoTooltipBox.style.top = `${top}px`;
             } else {
                 infoTooltipBox.style.display = 'none';
             }
         }
+
+        // Desktop: standard mouse click
+        function handleModelClick(event) {
+            handleInteraction(event.clientX, event.clientY);
+        }
+        window.addEventListener('click', handleModelClick, false);
+
+        // Mobile: OrbitControls' touch handler calls preventDefault() on
+        // touchstart, which stops most mobile browsers from firing the
+        // emulated "click" event afterwards - so taps never reached
+        // handleModelClick above. We detect taps ourselves instead: track
+        // where a touch started, and on touchend, if the finger barely moved
+        // and it was a short press (not a drag/orbit gesture), treat it as a tap.
+        let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+        const TAP_MOVE_THRESHOLD = 12;   // px - more movement than this counts as a drag, not a tap
+        const TAP_MAX_DURATION = 500;    // ms - longer holds are treated as a drag/gesture, not a tap
+
+        renderer.domElement.addEventListener('touchstart', (event) => {
+            if (event.touches.length !== 1) return; // ignore pinch/multi-touch
+            touchStartX = event.touches[0].clientX;
+            touchStartY = event.touches[0].clientY;
+            touchStartTime = Date.now();
+        }, { passive: true });
+
+        renderer.domElement.addEventListener('touchend', (event) => {
+            if (event.changedTouches.length !== 1) return;
+            const touch = event.changedTouches[0];
+            const dx = touch.clientX - touchStartX;
+            const dy = touch.clientY - touchStartY;
+            const moved = Math.sqrt(dx * dx + dy * dy);
+            const duration = Date.now() - touchStartTime;
+
+            if (moved < TAP_MOVE_THRESHOLD && duration < TAP_MAX_DURATION) {
+                handleInteraction(touch.clientX, touch.clientY);
+            }
+        }, { passive: true });
 
         // Viewport Re-calibration Handler
         window.addEventListener('resize', handleWindowResize, false);
