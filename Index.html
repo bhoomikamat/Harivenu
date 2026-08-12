@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Building Massing Model - Hari Venu, Dadar</title>
+    <!-- Three.js for 3D Rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for camera rotation/zoom -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #fff;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* Click Matrix Floating Tooltip Info Box */
+        #data-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            pointer-events: none;
+            display: none;
+            border: 1px solid #00bcd4;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            z-index: 10;
+            max-width: 250px;
+            line-height: 1.4;
+        }
+
+        /* Small floating legend kept minimal, top-right, collapsible via the H key */
+        #mini-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(30, 30, 30, 0.75);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            color: #aaa;
+            border: 1px solid rgba(255,255,255,0.1);
+            line-height: 1.4;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="mini-info">
+        Drag to orbit &middot; Scroll to zoom &middot; Click a block for details<br>
+        Press <strong>L</strong> to toggle labels
+    </div>
+
+    <div id="data-tooltip"></div>
+
+    <script>
+        // Database to safely retain interactive occupant data
+        const buildingDatabase = {
+            "401": { type: "Multipurpose Room", occupant: "Ajgaonkar" },
+            "402": { type: "Multipurpose Room", occupant: "Chury" },
+            "403": { type: "Multipurpose Room", occupant: "Chury" },
+
+            // Flat 4 column (front-left, 3 BHK, blue)
+            "505": { type: "3 BHK", occupant: "Shetty" },
+            "605": { type: "3 BHK", occupant: "Palav" },
+            "705": { type: "3 BHK", occupant: "Deshpande" },
+            "905": { type: "3 BHK", occupant: "Hirve" },
+
+            // Flat 1 column (rear band, full width, 3 BHK, orange)
+            "501": { type: "3 BHK", occupant: "Patil" },
+            "601": { type: "3 BHK", occupant: "Limaye" },
+            "701": { type: "3 BHK", occupant: "Bhoomi" },
+            "801": { type: "3 BHK", occupant: "Parekh" },
+            "901": { type: "3 BHK", occupant: "Sahu" },
+            "1001": { type: "3 BHK", occupant: "Deepak" },
+            "1101": { type: "3 BHK", occupant: "Pai" },
+            "1201": { type: "3 BHK", occupant: "Chury" },
+            "1301": { type: "3 BHK", occupant: "Mahimkar" },
+
+            // Flat 5 column (front-right, 2 BHK, green)
+            "504": { type: "2 BHK", occupant: "James" },
+            "604": { type: "2 BHK", occupant: "Tuli" },
+            "704": { type: "2 BHK", occupant: "Mehta" },
+            "804": { type: "2 BHK", occupant: "Lavina" },
+            "904": { type: "2 BHK", occupant: "Stanley" },
+            "1004": { type: "2 BHK", occupant: "Ravaria" },
+            "1104": { type: "2 BHK", occupant: "Rosy" },
+            "1204": { type: "2 BHK", occupant: "Banage" },
+            "1304": { type: "2 BHK", occupant: "Shinde" },
+            "1404": { type: "2 BHK", occupant: "Harchekar" },
+            "1604": { type: "2 BHK", occupant: "Kamat" },
+            "1704": { type: "2 BHK", occupant: "Tikhe" }
+        };
+
+        // Toggle all floor/area/road text labels on and off with the L key
+        let labelsVisible = true;
+        function toggleLabels() {
+            labelsVisible = !labelsVisible;
+            allLabelSprites.forEach(s => s.visible = labelsVisible);
+        }
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'l' || e.key === 'L') toggleLabels();
+        });
+
+        // --- Core WebGL Engine Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x191919);
+
+        // Balanced Ambient and Directional Lighting Matrix
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+        scene.add(ambientLight);
+
+        const primaryLight = new THREE.DirectionalLight(0xffffff, 0.85);
+        primaryLight.position.set(30, 50, 20);
+        scene.add(primaryLight);
+
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        fillLight.position.set(-30, 20, -20);
+        scene.add(fillLight);
+
+        // Camera Positioning Configuration
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(35, 30, 45);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // Orbit Navigation Controls setup
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.03; // Keep engine from scanning beneath structural floor terrain
+
+        // Strict design specifications hex color assignments
+        const blockColors = {
+            orange: 0xff9800,   // 3 BHK Back Stack
+            blue: 0x2196f3,     // 3 BHK Front Left
+            green: 0x4caf50,    // 2 BHK Front Right
+            pink: 0xe91e63,     // 4th Floor Occupied 1 BHKs
+            grey: 0x757575,     // Unassigned core elements
+            podium: 0x8a8f98,   // Parking podium - lighter, distinct from the dark ground plane
+            refuge: 0xf44336,   // Open safety breakout boundaries
+            utility: 0x546e7a,  // Circulation cores: car lift, stairs/entry
+            salable: 0x9c27b0,  // Front-left flats from 1005 upward, open for sale
+            amenity: 0xffb300   // Society Office & Fitness Center - distinct from parking/podium
+        };
+
+        const clickableObjects = [];
+        const raycaster = new THREE.Raycaster();
+        const mouseVector = new THREE.Vector2();
+
+        // --- Text Label Sprite System ---
+        // Sprites always face the camera, so labels stay readable no matter how
+        // the model is rotated. depthTest keeps them hidden behind solid geometry
+        // that's actually in front of them, so the model doesn't look X-ray'd.
+        const allLabelSprites = [];
+
+        function roundRectPath(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+        }
+
+        function addLabel(text, x, y, z, opts = {}) {
+            const fontSize = opts.fontSize || 60;
+            const padding = 18;
+            const lines = text.split('\n');
+            const lineHeight = fontSize * 1.15;
+
+            const measureCanvas = document.createElement('canvas');
+            const mctx = measureCanvas.getContext('2d');
+            mctx.font = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+            let maxWidth = 0;
+            lines.forEach(l => { maxWidth = Math.max(maxWidth, mctx.measureText(l).width); });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.ceil(maxWidth + padding * 2);
+            canvas.height = Math.ceil(lineHeight * lines.length + padding * 2);
+            const ctx = canvas.getContext('2d');
+            ctx.font = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+
+            ctx.fillStyle = opts.bg || 'rgba(15,15,15,0.78)';
+            ctx.strokeStyle = opts.border || 'rgba(255,255,255,0.35)';
+            ctx.lineWidth = 3;
+            roundRectPath(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 12);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = opts.color || '#ffffff';
+            ctx.textBaseline = 'middle';
+            lines.forEach((l, i) => {
+                const w = ctx.measureText(l).width;
+                ctx.fillText(l, (canvas.width - w) / 2, padding + lineHeight * i + lineHeight / 2);
+            });
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            const mat = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthTest: opts.depthTest !== false
+            });
+            const sprite = new THREE.Sprite(mat);
+            const scaleH = opts.scale || 0.9;
+            const scaleW = scaleH * (canvas.width / canvas.height);
+            sprite.scale.set(scaleW, scaleH, 1);
+            sprite.position.set(x, y, z);
+            sprite.renderOrder = 1;
+            scene.add(sprite);
+            allLabelSprites.push(sprite);
+            return sprite;
+        }
+
+        // 1. Site Context Base Layout
+        const siteGeo = new THREE.PlaneGeometry(70, 70);
+        const siteMat = new THREE.MeshStandardMaterial({ color: 0x242424, roughness: 0.85 });
+        const siteMesh = new THREE.Mesh(siteGeo, siteMat);
+        siteMesh.rotation.x = -Math.PI / 2;
+        siteMesh.position.y = -0.02;
+        scene.add(siteMesh);
+
+        // Front Face Access Roadway (Datta Raul Marg placement visualization)
+        const roadGeo = new THREE.BoxGeometry(60, 0.05, 12);
+        const roadMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 });
+        const roadMesh = new THREE.Mesh(roadGeo, roadMat);
+        roadMesh.position.set(0, 0.01, 22);
+        scene.add(roadMesh);
+
+        // FRONT ORIENTATION MARKER: "Datta Raul Marg" sits on the road itself and
+        // stays put in world space, so however the model is rotated, this label
+        // (and the road it sits on) always shows you which side is the front.
+        addLabel("DATTA RAUL MARG  (FRONT)", 0, 1.6, 22, {
+            fontSize: 46,
+            scale: 1.3,
+            color: '#00e5ff',
+            bg: 'rgba(10,10,10,0.85)',
+            border: 'rgba(0,229,255,0.6)'
+        });
+        addLabel("\u25B2 FRONT OF BUILDING FACES ROAD", 0, 0.9, 16, {
+            fontSize: 34,
+            scale: 0.75,
+            color: '#00e5ff',
+            bg: 'rgba(10,10,10,0.7)'
+        });
+
+        // 2. Parking Decks Podium Base - built as 6 individually labeled levels
+        // (Basement, Ground, 1st/2nd/3rd Podium, Service floor) stacked bottom to
+        // top. Heights are proportional to the real schedule (Basement 4.50m,
+        // Ground+Plinth 4.65m, P1/P2/P3 2.85m each, Service 1.65m) scaled to sum
+        // to the same total (podiumH = 5.0) the tower above was already built on.
+        const podiumH = 5.0;
+        const podiumLevels = [
+            { name: "Basement Floor",  detail: "26 Cars Stack Parking",        realH: 4.50 },
+            { name: "GR Floor",        detail: "Stilt + 20 Parking",           realH: 4.65 },
+            { name: "1st Podium",      detail: "11 Cars Parking",              realH: 2.85 },
+            { name: "2nd Podium",      detail: "13 Cars Parking",              realH: 2.85 },
+            { name: "3rd Podium",      detail: "24 Cars Parking",              realH: 2.85 },
+            { name: "Service Floor",   detail: "Service + Transfer Girder",    realH: 1.65 }
+        ];
+        const realHTotal = podiumLevels.reduce((sum, lvl) => sum + lvl.realH, 0);
+        podiumLevels.forEach(lvl => { lvl.h = (lvl.realH / realHTotal) * podiumH; });
+
+        let podiumY = 0;
+        podiumLevels.forEach(lvl => {
+            const geo = new THREE.BoxGeometry(18 - 0.05, lvl.h - 0.04, 15 - 0.05);
+            const mat = new THREE.MeshStandardMaterial({ color: blockColors.podium, roughness: 0.7 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.y = podiumY + lvl.h / 2;
+            mesh.userData = { info: `<strong>${lvl.name}</strong><br>${lvl.detail}` };
+            scene.add(mesh);
+            clickableObjects.push(mesh);
+
+            const edgeGeo = new THREE.EdgesGeometry(geo);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x555555 });
+            mesh.add(new THREE.LineSegments(edgeGeo, edgeMat));
+
+            addLabel(`${lvl.name}\n${lvl.detail}`, 0, podiumY + lvl.h / 2, 0, { fontSize: 32, scale: 0.5, color: '#e0e0e0' });
+
+            podiumY += lvl.h;
+        });
+
+        // 3. Tower Unit Grid Configurations & Spacing Variables
+        // Footprint matches the podium exactly: 18 wide (x) x 15 deep (z), so every
+        // floor is built as full-width/depth bands that tile the whole plate -
+        // no gaps, so the tower reads as a solid stacked cuboid, not floating boxes.
+        const floorH = 1.35;
+        const seam = 0.05; // thin gap between adjacent units purely for visual separation
+
+        const FOOT_W = 18;   // total floor width (x), matches podium
+        const FOOT_D = 15;   // total floor depth (z), matches podium
+        const xMin = -FOOT_W / 2, xMax = FOOT_W / 2;   // -9 to 9
+        const zMin = -FOOT_D / 2, zMax = FOOT_D / 2;   // -7.5 to 7.5
+
+        // Standard floors (5-22): three full-depth bands, rear to front
+        const bandDepth = FOOT_D / 3; // 5 each
+        const rearZ = zMin + bandDepth / 2;      // -5   (Flat 1, full width)
+        const midZ = 0;                           //  0   (Flat 2 / Flat 3, split width)
+        const frontZ = zMax - bandDepth / 2;      //  5   (Flat 4 / Flat 5, split width)
+        const halfW = FOOT_W / 2;                 // 9    (width of a half-plate unit)
+        const leftX = xMin + halfW / 2;            // -4.5 (Flat 4 column, front-left)
+        const rightX = xMax - halfW / 2;           //  4.5 (Flat 5 column, front-right)
+
+        // Middle-band column split shared by the 4th floor (402/403) and every
+        // standard floor above (Flat 2/Flat 3), so the pink boxes on the 4th floor
+        // and the grey boxes on floors 5-22 sit at IDENTICAL positions and stack
+        // directly on top of each other.
+        //
+        // A side elevation looks straight down the x-axis, so two boxes that only
+        // differ in x (like an earlier version of this file) collapse onto the same
+        // spot on screen - one hides behind the other. To actually be visible
+        // side-by-side from outside, 402/403 (and Flat2/Flat3) must differ in DEPTH
+        // (z) instead, and both must sit flush against the building's outer skin
+        // (x near xMax) rather than tucked toward the interior.
+        //
+        //   - Common Area column (midLeftW, left side) = Stairs+Fitness on floor 4,
+        //     Common Area on floors 5-22.
+        //   - Lobby column (lobbyW, centre) = fills the interior gap; Lobby Area on
+        //     every floor.
+        //   - Outer column (pairW, right side, flush to xMax) = 402/403 on floor 4,
+        //     Flat 2/Flat 3 on floors 5-22 - split by DEPTH so both are visible from
+        //     the side, with a gap between them.
+        const midLeftW = 8;                         // Stairs+Fitness / Common Area
+        const lobbyW = 3;                           // Lobby Area (fills the old interior gap)
+        const pairW = FOOT_W - midLeftW - lobbyW;    // 7 - outer column for 402/403 pair
+
+        const midLeftX = xMin + midLeftW / 2;                    // -5   (centre of the common-area column)
+        const lobbyX = xMin + midLeftW + lobbyW / 2;             //  1.5 (centre of the lobby column)
+        const pairX = xMax - pairW / 2;                          //  5.5 (centre of the outer 402/403 column, flush to xMax)
+
+        const midGap = 0; // no visible gap - 402/403 and Flat2/Flat3 sit flush against each other
+        const pairDepthEach = (bandDepth - midGap) / 2;                  // depth of each of the two boxes
+        const midColBackZ = midZ - bandDepth / 2 + pairDepthEach / 2;    // 402 (back half)
+        const midColFrontZ = midZ + bandDepth / 2 - pairDepthEach / 2;   // 403 (front half)
+
+        // Modular Construction Factory Function Builder - now takes explicit width/depth
+        // so units can be sized to fill their share of the floor plate exactly.
+        function createStructuralUnit(x, y, z, width, depth, colorHex, initialInfoText, dynamicId = null, isRefugeVoid = false) {
+            const geo = new THREE.BoxGeometry(width - seam, floorH - 0.08, depth - seam);
+            const mat = new THREE.MeshStandardMaterial({
+                color: colorHex,
+                roughness: 0.45,
+                metalness: 0.08,
+                transparent: isRefugeVoid,
+                opacity: isRefugeVoid ? 0.22 : 1.0
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            // Bind contextual description metadata maps directly inside object data containers
+            mesh.userData = {
+                info: initialInfoText,
+                id: dynamicId
+            };
+            clickableObjects.push(mesh);
+
+            // Edge line contours to visually isolate flat elements inside the model stacking matrix
+            const structuralEdgeGeo = new THREE.EdgesGeometry(geo);
+            const edgeLineMat = new THREE.LineBasicMaterial({
+                color: isRefugeVoid ? 0xff3333 : 0xffffff,
+                transparent: true,
+                opacity: isRefugeVoid ? 0.4 : 0.22
+            });
+            const lineSegments = new THREE.LineSegments(structuralEdgeGeo, edgeLineMat);
+            mesh.add(lineSegments);
+        }
+
+        // LOOP GENERATOR RUNNING FROM LEVEL 4 UP THROUGH LEVEL 22
+        for (let floor = 4; floor <= 22; floor++) {
+            // Target tracking calculation assigning stacking heights
+            let targetY = podiumH + ((floor - 4) * floorH) + (floorH / 2);
+
+            // Floor number marker, sitting just outside the left face of the tower
+            // so every level is clearly numbered regardless of rotation angle.
+            addLabel(`L${floor}`, xMin - 2.0, targetY, 0, {
+                fontSize: 50,
+                scale: 0.7,
+                color: '#00bcd4',
+                bg: 'rgba(10,10,10,0.7)'
+            });
+
+            // 4th FLOOR LAYOUT - aligned to the same three depth-bands every floor above
+            // uses (rearZ / midZ / frontZ, each bandDepth=5 deep), so each 4th floor
+            // zone sits directly under/over the matching band on floors 5-22.
+            //
+            // BACK band  (rearZ, z -7.5..-2.5): Car Lift | Flat 401 (Ajgaonkar) | Society Office
+            // MIDDLE band (midZ, z -2.5..2.5): Stairs/Entry (left) | Fitness Center centre
+            //             section | Flat 402 (Chury, back half) | Flat 403 (Chury, front half)
+            // FRONT band (frontZ, z 2.5..7.5): Fitness Center, full width
+            if (floor === 4) {
+                // --- BACK BAND: Car Lift, Flat 401, Society Office (left to right) ---
+                const carLiftW = 3;
+                const w401 = 6;
+                const officeW = FOOT_W - carLiftW - w401; // 9
+
+                const carLiftX = xMin + carLiftW / 2;                  // -7.5
+                const x401 = xMin + carLiftW + w401 / 2;               // -3
+                const officeX = xMin + carLiftW + w401 + officeW / 2;  //  4.5
+
+                createStructuralUnit(carLiftX, targetY, rearZ, carLiftW, bandDepth, blockColors.utility,
+                    "<strong>Car Lift (4th Floor)</strong><br>Mechanical car-lift shaft &mdash; back-left corner, same depth as Flat 401 &amp; the Society Office.");
+                addLabel("Car Lift", carLiftX, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 36, scale: 0.55, color: '#b0bec5' });
+
+                createStructuralUnit(x401, targetY, rearZ, w401, bandDepth, blockColors.pink,
+                    "<strong>Flat 401 Details:</strong><br>Rehab Flat &mdash; 173 sq ft carpet, back band centre.", "401");
+                addLabel("401\nAjgaonkar", x401, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 40, scale: 0.6 });
+
+                createStructuralUnit(officeX, targetY, rearZ, officeW, bandDepth, blockColors.amenity,
+                    "<strong>Society Office (4th Floor)</strong><br>Community area, back band right side &mdash; not assigned a flat number.");
+                addLabel("Society\nOffice", officeX, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 38, scale: 0.55 });
+
+                // --- MIDDLE BAND (left to right): Stairs/Entry + Fitness Center | Lobby Area | 403 & 402 (outer edge, split by depth) ---
+                // 402/403 sit flush against the right outer wall (pairX, near xMax) and
+                // are split by DEPTH (z), not width - a side elevation looks straight
+                // down the x-axis, so splitting by x would make one hide behind the
+                // other. Splitting by z is what actually makes both visible side-by-side
+                // from outside. This lines up exactly with Flat 3/Flat 2 on floors 5-22.
+                const stairsW = 4;
+                const fitCenterW = midLeftW - stairsW; // 4 - remainder of the common-area column
+
+                const stairsX = xMin + stairsW / 2;                 // -7
+                const fitCenterX = xMin + stairsW + fitCenterW / 2; // -3
+
+                createStructuralUnit(stairsX, targetY, midZ, stairsW, bandDepth, blockColors.utility,
+                    "<strong>Stairs / Entry Lobby (4th Floor)</strong><br>Circulation core, left side of the middle band &mdash; sits between the Car Lift (back) and Fitness Center (front).");
+                addLabel("Stairs /\nEntry", stairsX, targetY + floorH / 2 + 0.35, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
+
+                createStructuralUnit(fitCenterX, targetY, midZ, fitCenterW, bandDepth, blockColors.amenity,
+                    "<strong>Fitness Center (4th Floor)</strong><br>Community amenity, left side of the middle band, right of Stairs/Entry.");
+                addLabel("Fitness\nCenter", fitCenterX, targetY + floorH / 2 + 0.35, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
+
+                createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.grey,
+                    "<strong>Lobby Area (4th Floor)</strong><br>Interior landing/lobby, middle band centre &mdash; between Fitness Center and Flats 402/403.");
+                addLabel("Lobby\nArea", lobbyX, targetY + floorH / 2 + 0.35, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
+
+                createStructuralUnit(pairX, targetY, midColBackZ, pairW, pairDepthEach, blockColors.pink,
+                    "<strong>Flat 402 Details:</strong><br>Rehab Flat &mdash; 254 sq ft carpet, right outer edge of the middle band, back half.", "402");
+                addLabel("402\nChury", pairX, targetY + floorH / 2 + 0.35, midColBackZ, { fontSize: 40, scale: 0.6 });
+
+                createStructuralUnit(pairX, targetY, midColFrontZ, pairW, pairDepthEach, blockColors.pink,
+                    "<strong>Flat 403 Details:</strong><br>Rehab Flat &mdash; 246 sq ft carpet, right outer edge of the middle band, front half.", "403");
+                addLabel("403\nChury", pairX, targetY + floorH / 2 + 0.35, midColFrontZ, { fontSize: 40, scale: 0.6 });
+
+                // --- FRONT BAND: Fitness Center, full width ---
+                createStructuralUnit(0, targetY, frontZ, FOOT_W, bandDepth, blockColors.amenity,
+                    "<strong>Fitness Center (4th Floor)</strong><br>Community amenity, entire front band &mdash; sits directly below the 5th floor's Flat 4 (3 BHK) &amp; Flat 5 (2 BHK).");
+                addLabel("Fitness Center", 0, targetY + floorH / 2 + 0.35, frontZ, { fontSize: 40, scale: 0.6 });
+
+                continue; // Skip standard loop checks for 4th tier step out baseline processing
+            }
+
+            // --- STANDARD UPPER HABITABLE FLOORS (5 TO 22) ---
+            const labelY = targetY + floorH / 2 + 0.3;
+
+            // Flat 1: Rear Band, full building width (Orange, salable from 1401 up)
+            const id01 = `${floor}01`;
+            const isSalable01 = floor >= 14;
+            const color01 = isSalable01 ? blockColors.salable : blockColors.orange;
+            const info01 = isSalable01
+                ? `<strong>Flat ${id01} (Floor ${floor})</strong><br>Salable`
+                : `<strong>Flat ${id01} (Floor ${floor})</strong><br>Type: 3 BHK Residential &mdash; occupies the full rear band, wall to wall.`;
+            createStructuralUnit(0, targetY, rearZ, FOOT_W, bandDepth, color01, info01, id01);
+            const label01 = isSalable01
+                ? `${id01}\nSalable`
+                : (buildingDatabase[id01] ? `${id01}\n${buildingDatabase[id01].occupant}` : id01);
+            addLabel(label01, 0, labelY, rearZ, { fontSize: 34, scale: 0.5 });
+
+            // Flat 2 & Flat 3 sit flush against the right outer wall (pairX, near
+            // xMax) and are split by DEPTH - the SAME x/z positions as Flat 402/403
+            // on the 4th floor - so they stack directly on top of the pink boxes
+            // below and are actually visible side-by-side from a side elevation.
+            createStructuralUnit(pairX, targetY, midColBackZ, pairW, pairDepthEach, blockColors.grey,
+                `<strong>PAP Flat &mdash; Floor ${floor}</strong>`);
+            addLabel(`PAP\nFloor ${floor}`, pairX, labelY, midColBackZ, { fontSize: 34, scale: 0.5 });
+            createStructuralUnit(pairX, targetY, midColFrontZ, pairW, pairDepthEach, blockColors.grey,
+                `<strong>PAP Flat &mdash; Floor ${floor}</strong>`);
+            addLabel(`PAP\nFloor ${floor}`, pairX, labelY, midColFrontZ, { fontSize: 34, scale: 0.5 });
+
+            createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.grey,
+                `<strong>Lobby Area (Floor ${floor})</strong><br>Landing/lobby, middle band centre &mdash; not a residential flat.`);
+            addLabel("Lobby\nArea", lobbyX, labelY, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
+
+            createStructuralUnit(midLeftX, targetY, midZ, midLeftW, bandDepth, blockColors.grey,
+                `<strong>Common Area (Floor ${floor})</strong><br>Left side of the middle band &mdash; not a residential flat.`);
+            addLabel("Common\nArea", midLeftX, labelY, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
+
+            // Flat 5: Front Band, right half (Green, salable from 1804 up; Fitness Area on 15th)
+            const id04 = `${floor}04`;
+            const isSalable04 = floor >= 18;
+            const isFitness04 = floor === 15;
+            const color04 = isFitness04 ? blockColors.amenity : (isSalable04 ? blockColors.salable : blockColors.green);
+            const info04 = isFitness04
+                ? `<strong>Fitness Area (Floor ${floor})</strong><br>Community amenity &mdash; right half of the front band, not a habitable flat.`
+                : (isSalable04
+                    ? `<strong>Flat ${id04} (Floor ${floor})</strong><br>Salable`
+                    : `<strong>Flat ${id04} (Floor ${floor})</strong><br>Type: 2 BHK Habitable &mdash; right half of the front band (faces Datta Raul Marg).`);
+            createStructuralUnit(rightX, targetY, frontZ, halfW, bandDepth, color04, info04, isFitness04 ? null : id04);
+            const label04 = isFitness04
+                ? "Fitness\nArea"
+                : (isSalable04 ? `${id04}\nSalable` : (buildingDatabase[id04] ? `${id04}\n${buildingDatabase[id04].occupant}` : id04));
+            addLabel(label04, rightX, labelY, frontZ, { fontSize: 34, scale: 0.5 });
+
+            // Flat 4: Front Band, left half - Safety Outages at L8/L15
+            if (floor === 8 || floor === 15) {
+                // Remove unit to introduce the requested Open Air Fire Refuge Safety void
+                createStructuralUnit(leftX, targetY, frontZ, halfW, bandDepth, blockColors.refuge,
+                    `<strong>FIRE REFUGE ZONE (Floor ${floor})</strong><br><span style="color:#ff5252;">MANDATORY CODE SAFETY DECK CUTOUT: Only the 3 BHK unit is omitted here; 2 BHK continues across.</span>`,
+                    null, true);
+                addLabel("Refuge\nZone", leftX, labelY, frontZ, { fontSize: 34, scale: 0.5, color: '#ff8a80' });
+            } else {
+                // Map regular 3 BHK left-front unit across standard vertical tracks
+                const id05 = `${floor}05`;
+                const isSalable = floor >= 10;
+                const color05 = isSalable ? blockColors.salable : blockColors.blue;
+                const info05 = isSalable
+                    ? `<strong>Flat ${id05} (Floor ${floor})</strong><br>Salable`
+                    : `<strong>Flat ${id05} (Floor ${floor})</strong><br>Type: 3 BHK Premium &mdash; left half of the front band (faces Datta Raul Marg).`;
+                createStructuralUnit(leftX, targetY, frontZ, halfW, bandDepth, color05,
+                    info05, id05);
+                const label05 = isSalable
+                    ? `${id05}\nSalable`
+                    : (buildingDatabase[id05] ? `${id05}\n${buildingDatabase[id05].occupant}` : id05);
+                addLabel(label05, leftX, labelY, frontZ, { fontSize: 34, scale: 0.5 });
+            }
+        }
+
+        // --- Raycasting Interactive Input Processing ---
+        const infoTooltipBox = document.getElementById('data-tooltip');
+        window.addEventListener('click', handleModelClick, false);
+
+        function handleModelClick(event) {
+            mouseVector.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouseVector, camera);
+            const intersectedElements = raycaster.intersectObjects(clickableObjects);
+
+            if (intersectedElements.length > 0) {
+                const activeMesh = intersectedElements[0].object;
+                let builtContentHTML = activeMesh.userData.info;
+
+                // Dynamically pull latest occupant assignments from database ledger if linked to an active key
+                if (activeMesh.userData.id && buildingDatabase[activeMesh.userData.id]) {
+                    const residentData = buildingDatabase[activeMesh.userData.id];
+                    builtContentHTML += `<br><span style="color:#ffeb3b; display:block; margin-top:5px;"><strong>Unit Type:</strong> ${residentData.type}</span>`;
+                    builtContentHTML += `<span style="color:#00e676; display:block;"><strong>Occupant Name:</strong> ${residentData.occupant}</span>`;
+                }
+
+                infoTooltipBox.innerHTML = builtContentHTML;
+                infoTooltipBox.style.display = 'block';
+                infoTooltipBox.style.left = `${event.clientX + 15}px`;
+                infoTooltipBox.style.top = `${event.clientY + 15}px`;
+            } else {
+                infoTooltipBox.style.display = 'none';
+            }
+        }
+
+        // Viewport Re-calibration Handler
+        window.addEventListener('resize', handleWindowResize, false);
+        function handleWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Continuous Loop Animation Engine
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        renderLoop();
+    </script>
+</body>
+</html>
