@@ -21,7 +21,9 @@
         #canvas-container {
             width: 100vw;
             height: 100vh;
+            height: 100dvh; /* modern mobile browsers: accounts for the address bar, avoids a gap/overscroll */
             display: block;
+            touch-action: none; /* stop the browser's own pinch-zoom/scroll from fighting OrbitControls' touch gestures */
         }
 
         /* Click Matrix Floating Tooltip Info Box */
@@ -64,6 +66,29 @@
             border: 1px solid rgba(255,255,255,0.1);
             line-height: 1.4;
             pointer-events: none;
+            max-width: 220px;
+        }
+
+        /* Tap-friendly control for phones/tablets, since there's no keyboard for
+           the "L" shortcut. Sized comfortably above the ~44px touch-target minimum. */
+        #labels-toggle-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            transform: translateY(78px);
+            background: rgba(30, 30, 30, 0.85);
+            color: #4fc3f7;
+            border: 1px solid rgba(79, 195, 247, 0.4);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 0.8rem;
+            font-family: inherit;
+            cursor: pointer;
+            pointer-events: auto;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #labels-toggle-btn:active {
+            background: rgba(79, 195, 247, 0.25);
         }
     </style>
 </head>
@@ -75,6 +100,8 @@
         Drag to orbit &middot; Pinch/scroll to zoom &middot; Tap or click a block for details<br>
         Press <strong>L</strong> to toggle labels
     </div>
+
+    <button id="labels-toggle-btn" onclick="toggleLabels()">Hide Labels</button>
 
     <div id="data-tooltip"></div>
 
@@ -133,11 +160,14 @@
             22: 13                                     // 22ND FLOOR PLAN
         };
 
-        // Toggle all floor/area/road text labels on and off with the L key
+        // Toggle all floor/area/road text labels on and off - "L" key on desktop,
+        // or the on-screen button on touch devices that have no keyboard.
         let labelsVisible = true;
         function toggleLabels() {
             labelsVisible = !labelsVisible;
             allLabelSprites.forEach(s => s.visible = labelsVisible);
+            const btn = document.getElementById('labels-toggle-btn');
+            if (btn) btn.textContent = labelsVisible ? 'Hide Labels' : 'Show Labels';
         }
         window.addEventListener('keydown', (e) => {
             if (e.key === 'l' || e.key === 'L') toggleLabels();
@@ -166,7 +196,7 @@
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // cap for perf on high-DPI phones (DPR 3)
         container.appendChild(renderer.domElement);
 
         // Orbit Navigation Controls setup
@@ -658,6 +688,10 @@
 
         // Viewport Re-calibration Handler
         window.addEventListener('resize', handleWindowResize, false);
+        // Some mobile browsers report stale innerWidth/innerHeight for a moment
+        // right after rotation, before 'resize' fires with the correct values -
+        // this re-checks a beat later as a safety net.
+        window.addEventListener('orientationchange', () => setTimeout(handleWindowResize, 200), false);
         function handleWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
