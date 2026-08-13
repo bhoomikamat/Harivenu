@@ -31,13 +31,24 @@
             padding: 12px;
             border-radius: 6px;
             font-size: 0.85rem;
-            pointer-events: none;
+            pointer-events: auto;
             display: none;
             border: 1px solid #00bcd4;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
             z-index: 10;
             max-width: 250px;
             line-height: 1.4;
+        }
+
+        #data-tooltip a.floor-plan-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #4fc3f7;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        #data-tooltip a.floor-plan-link:hover {
+            text-decoration: underline;
         }
 
         /* Small floating legend kept minimal, top-right, collapsible via the H key */
@@ -104,6 +115,22 @@
             "1404": { type: "2 BHK", occupant: "Harchekar" },
             "1604": { type: "2 BHK", occupant: "Kamat" },
             "1704": { type: "2 BHK", occupant: "Tikhe" }
+        };
+
+        // Floor Plan PDF - hosted on GitHub Pages alongside this model.
+        // Page numbers below come directly from each page's title block in the
+        // combined PDF (some pages cover several floors that share one layout).
+        const floorPlanPDF = "https://bhoomikamat.github.io/Harivenu/harivenu-floor-plans.pdf";
+        const floorPlanPage = {
+            4: 6,                                    // 4TH FLOOR PLAN
+            5: 7, 6: 7, 7: 7,                         // 5TH TO 7TH FLOOR PLAN
+            8: 8,                                     // 8TH REFUGE FLOOR PLAN
+            9: 9,                                     // 9TH FLOOR PLAN
+            10: 10,                                    // 10TH FLOOR PLAN
+            11: 11, 12: 11, 13: 11, 14: 11,            // 11TH TO 14TH FLOOR PLAN
+            15: 12,                                    // 15TH REFUGE FLOOR PLAN
+            16: 11, 17: 11, 18: 11, 19: 11, 20: 11, 21: 11, // 16TH TO 21ST FLOOR PLAN
+            22: 13                                     // 22ND FLOOR PLAN
         };
 
         // Toggle all floor/area/road text labels on and off with the L key
@@ -371,7 +398,8 @@
             // Bind contextual description metadata maps directly inside object data containers
             mesh.userData = {
                 info: initialInfoText,
-                id: dynamicId
+                id: dynamicId,
+                floor: currentFloorForLabel
             };
             clickableObjects.push(mesh);
 
@@ -387,18 +415,20 @@
         }
 
         // LOOP GENERATOR RUNNING FROM LEVEL 4 UP THROUGH LEVEL 22
+        let currentFloorForLabel = null; // read by createStructuralUnit to tag each mesh with its floor
         for (let floor = 4; floor <= 22; floor++) {
+            currentFloorForLabel = floor;
+
             // Target tracking calculation assigning stacking heights
             let targetY = podiumH + ((floor - 4) * floorH) + (floorH / 2);
 
-            // Floor number marker, sitting just outside the left face of the tower
-            // so every level is clearly numbered regardless of rotation angle.
-            addLabel(`L${floor}`, xMin - 2.0, targetY, 0, {
-                fontSize: 50,
-                scale: 0.7,
-                color: '#00bcd4',
-                bg: 'rgba(10,10,10,0.7)'
-            });
+            // Floor number markers on all four sides of the tower, so the level is
+            // readable no matter which face is turned toward the camera as you orbit.
+            const floorLabelOpts = { fontSize: 50, scale: 0.7, color: '#00bcd4', bg: 'rgba(10,10,10,0.7)' };
+            addLabel(`L${floor}`, xMin - 2.0, targetY, 0, floorLabelOpts);   // left
+            addLabel(`L${floor}`, xMax + 2.0, targetY, 0, floorLabelOpts);   // right
+            addLabel(`L${floor}`, 0, targetY, zMin - 2.0, floorLabelOpts);  // back
+            addLabel(`L${floor}`, 0, targetY, zMax + 2.0, floorLabelOpts);  // front
 
             // 4th FLOOR LAYOUT - aligned to the same three depth-bands every floor above
             // uses (rearZ / midZ / frontZ, each bandDepth=5 deep), so each 4th floor
@@ -565,6 +595,12 @@
                     const residentData = buildingDatabase[activeMesh.userData.id];
                     builtContentHTML += `<br><span style="color:#ffeb3b; display:block; margin-top:5px;"><strong>Unit Type:</strong> ${residentData.type}</span>`;
                     builtContentHTML += `<span style="color:#00e676; display:block;"><strong>Occupant Name:</strong> ${residentData.occupant}</span>`;
+                }
+
+                // Link straight to this floor's page in the combined floor-plan PDF
+                const pdfPage = floorPlanPage[activeMesh.userData.floor];
+                if (pdfPage) {
+                    builtContentHTML += `<br><a class="floor-plan-link" href="${floorPlanPDF}#page=${pdfPage}" target="_blank" rel="noopener">View Floor Plan (PDF) &rarr;</a>`;
                 }
 
                 infoTooltipBox.innerHTML = builtContentHTML;
