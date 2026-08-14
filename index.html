@@ -90,6 +90,51 @@
         #labels-toggle-btn:active {
             background: rgba(79, 195, 247, 0.25);
         }
+
+        /* Color legend, like a map key - bottom-right corner, over the empty
+           background so it doesn't sit on top of the model itself. */
+        #color-legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(20, 20, 20, 0.82);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
+            font-size: 0.72rem;
+            color: #ddd;
+            line-height: 1.5;
+            pointer-events: none;
+            max-width: 190px;
+        }
+        #color-legend .legend-title {
+            font-size: 0.78rem;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+        }
+        #color-legend .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 3px 0;
+        }
+        #color-legend .legend-swatch {
+            width: 13px;
+            height: 13px;
+            border-radius: 3px;
+            flex-shrink: 0;
+            border: 1px solid rgba(255,255,255,0.25);
+        }
+
+        @media (max-width: 480px) {
+            #mini-info { font-size: 0.68rem; padding: 8px 10px; max-width: 170px; }
+            #labels-toggle-btn { padding: 6px 10px; font-size: 0.72rem; transform: translateY(64px); }
+            #color-legend { font-size: 0.62rem; padding: 8px 10px; max-width: 145px; bottom: 12px; right: 12px; }
+            #color-legend .legend-title { font-size: 0.68rem; }
+            #color-legend .legend-swatch { width: 10px; height: 10px; }
+        }
     </style>
 </head>
 <body>
@@ -103,14 +148,27 @@
 
     <button id="labels-toggle-btn" onclick="toggleLabels()">Hide Labels</button>
 
+    <div id="color-legend">
+        <div class="legend-title">LEGEND</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#ff9800;"></div>3 BHK REHAB Flat</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#2196f3;"></div>3 BHK REHAB Flat (Front)</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#4caf50;"></div>2 BHK REHAB Flat</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#ffee33;"></div>Society Office / Fitness</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#757575;"></div>PAP Saleable Flat</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#9c27b0;"></div>Saleable Flat</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#8a8f98;"></div>Parking</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#546e7a;"></div>Car Lift / Lobby / Common Area</div>
+        <div class="legend-row"><div class="legend-swatch" style="background:#f44336;"></div>Refuge Zone</div>
+    </div>
+
     <div id="data-tooltip"></div>
 
     <script>
         // Database to safely retain interactive occupant data
         const buildingDatabase = {
-            "401": { type: "Multipurpose Room", occupant: "Ajgaonkar" },
-            "402": { type: "Multipurpose Room", occupant: "Chury" },
-            "403": { type: "Multipurpose Room", occupant: "Chury" },
+            "401": { type: "Rehab Flat", occupant: "Ajgaonkar" },
+            "402": { type: "Rehab Flat", occupant: "Rumde (tenant)" },
+            "403": { type: "Rehab Flat", occupant: "Pawar (tenant)" },
 
             // Flat 4 column (front-left, 3 BHK, blue)
             "505": { type: "3 BHK", occupant: "Shetty" },
@@ -216,7 +274,7 @@
             refuge: 0xf44336,   // Open safety breakout boundaries
             utility: 0x546e7a,  // Circulation cores: car lift, stairs/entry
             salable: 0x9c27b0,  // Front-left flats from 1005 upward, open for sale
-            amenity: 0xffb300   // Society Office & Fitness Center - distinct from parking/podium
+            amenity: 0xffee33   // Society Office & Fitness Center - true yellow, distinct from orange (Flat 1)
         };
 
         const clickableObjects = [];
@@ -321,6 +379,56 @@
             bg: 'rgba(10,10,10,0.7)'
         });
 
+        // Simple low-poly tree: a trunk cylinder plus 2-3 stacked foliage cones,
+        // built once as a template and cloned for every planting spot so the
+        // whole row is just cheap instances of a few shared geometries/materials.
+        function createTree(x, z, scale = 1) {
+            const group = new THREE.Group();
+
+            const trunkGeo = new THREE.CylinderGeometry(0.12 * scale, 0.16 * scale, 1.1 * scale, 6);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6d4c34, roughness: 0.9 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 0.55 * scale;
+            group.add(trunk);
+
+            const foliageColors = [0x2e7d32, 0x388e3c, 0x33691e];
+            const foliageColor = foliageColors[Math.floor(Math.random() * foliageColors.length)];
+            const foliageMat = new THREE.MeshStandardMaterial({ color: foliageColor, roughness: 0.8 });
+
+            const tiers = [
+                { r: 0.85, h: 1.3, y: 1.35 },
+                { r: 0.65, h: 1.1, y: 2.05 },
+                { r: 0.42, h: 0.85, y: 2.65 }
+            ];
+            tiers.forEach(t => {
+                const coneGeo = new THREE.ConeGeometry(t.r * scale, t.h * scale, 7);
+                const cone = new THREE.Mesh(coneGeo, foliageMat);
+                cone.position.y = t.y * scale;
+                group.add(cone);
+            });
+
+            group.position.set(x, 0, z);
+            scene.add(group);
+            return group;
+        }
+
+        // Scatter trees around all four sides of the tower, clear of the building
+        // footprint (x -9..9, z -7.5..7.5) and clear of the road strip at z=16..28.
+        const treeSpots = [
+            // Back side (away from the road)
+            [-13, -13], [-6, -12.5], [3, -12.5], [10, -13], [15, -11],
+            // Front side, between the building and the road (z stays under ~15)
+            [-13, 11], [-6, 12], [6, 12], [13, 11],
+            // Left side
+            [-13, -4], [-14.5, 2], [-13, 8],
+            // Right side
+            [13, -4], [14.5, 2], [13, 8]
+        ];
+        treeSpots.forEach(([tx, tz]) => {
+            const scale = 0.85 + Math.random() * 0.5;
+            createTree(tx + (Math.random() - 0.5) * 1.5, tz + (Math.random() - 0.5) * 1.5, scale);
+        });
+
         // 2. Parking Decks Podium Base - built as 6 individually labeled levels
         // (Basement, Ground, 1st/2nd/3rd Podium, Service floor) stacked bottom to
         // top. Heights are proportional to the real schedule (Basement 4.50m,
@@ -412,8 +520,8 @@
 
         // Modular Construction Factory Function Builder - now takes explicit width/depth
         // so units can be sized to fill their share of the floor plate exactly.
-        function createStructuralUnit(x, y, z, width, depth, colorHex, initialInfoText, dynamicId = null, isRefugeVoid = false) {
-            const geo = new THREE.BoxGeometry(width - seam, floorH - 0.08, depth - seam);
+        function createStructuralUnit(x, y, z, width, depth, colorHex, initialInfoText, dynamicId = null, isRefugeVoid = false, heightGap = 0.3) {
+            const geo = new THREE.BoxGeometry(width - seam, floorH - heightGap, depth - seam);
             const mat = new THREE.MeshStandardMaterial({
                 color: colorHex,
                 roughness: 0.45,
@@ -433,12 +541,15 @@
             };
             clickableObjects.push(mesh);
 
-            // Edge line contours to visually isolate flat elements inside the model stacking matrix
+            // Edge line contours to visually isolate flat elements inside the model stacking matrix.
+            // Dark (near-black) instead of white/light - a light line on a light-colored
+            // box (grey PAP, pink flats, etc.) has weak contrast; dark reads clearly against
+            // every fill color and against the gap itself.
             const structuralEdgeGeo = new THREE.EdgesGeometry(geo);
             const edgeLineMat = new THREE.LineBasicMaterial({
-                color: isRefugeVoid ? 0xff3333 : 0xffffff,
+                color: isRefugeVoid ? 0xff3333 : 0x111111,
                 transparent: true,
-                opacity: isRefugeVoid ? 0.4 : 0.22
+                opacity: isRefugeVoid ? 0.4 : 0.65
             });
             const lineSegments = new THREE.LineSegments(structuralEdgeGeo, edgeLineMat);
             mesh.add(lineSegments);
@@ -455,8 +566,8 @@
             // Floor number markers on all four sides of the tower, so the level is
             // readable no matter which face is turned toward the camera as you orbit.
             const floorLabelOpts = { fontSize: 50, scale: 0.7, color: '#00bcd4', bg: 'rgba(10,10,10,0.7)' };
-            addLabel(`L${floor}`, xMin - 2.0, targetY, 0, floorLabelOpts);   // left
-            addLabel(`L${floor}`, xMax + 2.0, targetY, 0, floorLabelOpts);   // right
+            addLabel(`L${floor}`, xMin - 2.0, targetY, -3.5, floorLabelOpts); // left (offset off the z=0 seam line)
+            addLabel(`L${floor}`, xMax + 2.0, targetY, -3.5, floorLabelOpts); // right (offset off the z=0 seam line)
             addLabel(`L${floor}`, 0, targetY, zMin - 2.0, floorLabelOpts);  // back
             addLabel(`L${floor}`, 0, targetY, zMax + 2.0, floorLabelOpts);  // front
 
@@ -479,7 +590,7 @@
                 const officeX = xMin + carLiftW + w401 + officeW / 2;  //  4.5
 
                 createStructuralUnit(carLiftX, targetY, rearZ, carLiftW, bandDepth, blockColors.utility,
-                    "<strong>Car Lift (4th Floor)</strong><br>Mechanical car-lift shaft &mdash; back-left corner, same depth as Flat 401 &amp; the Society Office.");
+                    "<strong>Car Lift (4th Floor)</strong><br>Mechanical car-lift shaft &mdash; back-left corner.");
                 addLabel("Car Lift", carLiftX, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 36, scale: 0.55, color: '#b0bec5' });
 
                 createStructuralUnit(x401, targetY, rearZ, w401, bandDepth, blockColors.pink,
@@ -487,7 +598,7 @@
                 addLabel("401\nAjgaonkar", x401, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 40, scale: 0.6 });
 
                 createStructuralUnit(officeX, targetY, rearZ, officeW, bandDepth, blockColors.amenity,
-                    "<strong>Society Office (4th Floor)</strong><br>Community area, back band right side &mdash; not assigned a flat number.");
+                    "<strong>Society Office (4th Floor)</strong><br>Community area, back band right side.");
                 addLabel("Society\nOffice", officeX, targetY + floorH / 2 + 0.35, rearZ, { fontSize: 38, scale: 0.55 });
 
                 // --- MIDDLE BAND (left to right): Stairs/Entry + Fitness Center | Lobby Area | 403 & 402 (outer edge, split by depth) ---
@@ -510,17 +621,17 @@
                     "<strong>Fitness Center (4th Floor)</strong><br>Community amenity, left side of the middle band, right of Stairs/Entry.");
                 addLabel("Fitness\nCenter", fitCenterX, targetY + floorH / 2 + 0.35, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
 
-                createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.grey,
+                createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.utility,
                     "<strong>Lobby Area (4th Floor)</strong><br>Interior landing/lobby, middle band centre &mdash; between Fitness Center and Flats 402/403.");
                 addLabel("Lobby\nArea", lobbyX, targetY + floorH / 2 + 0.35, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
 
                 createStructuralUnit(pairX, targetY, midColBackZ, pairW, pairDepthEach, blockColors.pink,
-                    "<strong>Flat 402 Details:</strong><br>Rehab Flat &mdash; 254 sq ft carpet, right outer edge of the middle band, back half.", "402");
-                addLabel("402\nChury", pairX, targetY + floorH / 2 + 0.35, midColBackZ, { fontSize: 40, scale: 0.6 });
+                    "<strong>Flat 402 Details:</strong><br>Rehab Flat &mdash; 254 sq ft carpet, right outer edge of the middle band.", "402", false, 0.3);
+                addLabel("402\nRumde", pairX, targetY + floorH / 2 + 0.35, midColBackZ, { fontSize: 40, scale: 0.6 });
 
                 createStructuralUnit(pairX, targetY, midColFrontZ, pairW, pairDepthEach, blockColors.pink,
-                    "<strong>Flat 403 Details:</strong><br>Rehab Flat &mdash; 246 sq ft carpet, right outer edge of the middle band, front half.", "403");
-                addLabel("403\nChury", pairX, targetY + floorH / 2 + 0.35, midColFrontZ, { fontSize: 40, scale: 0.6 });
+                    "<strong>Flat 403 Details:</strong><br>Rehab Flat &mdash; 246 sq ft carpet, right outer edge of the middle band.", "403", false, 0.3);
+                addLabel("403\nPawar", pairX, targetY + floorH / 2 + 0.35, midColFrontZ, { fontSize: 40, scale: 0.6 });
 
                 // --- FRONT BAND: Fitness Center, full width ---
                 createStructuralUnit(0, targetY, frontZ, FOOT_W, bandDepth, blockColors.amenity,
@@ -535,14 +646,14 @@
 
             // Flat 1: Rear Band, full building width (Orange, salable from 1401 up)
             const id01 = `${floor}01`;
-            const isSalable01 = floor >= 14;
-            const color01 = isSalable01 ? blockColors.salable : blockColors.orange;
-            const info01 = isSalable01
-                ? `<strong>Flat ${id01} (Floor ${floor})</strong><br>Salable`
-                : `<strong>Flat ${id01} (Floor ${floor})</strong><br>Type: 3 BHK Residential &mdash; occupies the full rear band, wall to wall.`;
+            const isSaleable01 = floor >= 14;
+            const color01 = isSaleable01 ? blockColors.salable : blockColors.orange;
+            const info01 = isSaleable01
+                ? `<strong>Flat ${id01} (Floor ${floor})</strong><br>Saleable`
+                : `<strong>Flat ${id01} (Floor ${floor})</strong><br>Type: 3 BHK REHAB &mdash; occupies the full rear band.`;
             createStructuralUnit(0, targetY, rearZ, FOOT_W, bandDepth, color01, info01, id01);
-            const label01 = isSalable01
-                ? `${id01}\nSalable`
+            const label01 = isSaleable01
+                ? `${id01}\nSaleable`
                 : (buildingDatabase[id01] ? `${id01}\n${buildingDatabase[id01].occupant}` : id01);
             addLabel(label01, 0, labelY, rearZ, { fontSize: 34, scale: 0.5 });
 
@@ -551,34 +662,34 @@
             // on the 4th floor - so they stack directly on top of the pink boxes
             // below and are actually visible side-by-side from a side elevation.
             createStructuralUnit(pairX, targetY, midColBackZ, pairW, pairDepthEach, blockColors.grey,
-                `<strong>PAP Flat &mdash; Floor ${floor}</strong>`);
+                `<strong>PAP Saleable &mdash; Floor ${floor}</strong>`, null, false, 0.3);
             addLabel(`PAP\nFloor ${floor}`, pairX, labelY, midColBackZ, { fontSize: 34, scale: 0.5 });
             createStructuralUnit(pairX, targetY, midColFrontZ, pairW, pairDepthEach, blockColors.grey,
-                `<strong>PAP Flat &mdash; Floor ${floor}</strong>`);
+                `<strong>PAP Saleable &mdash; Floor ${floor}</strong>`, null, false, 0.3);
             addLabel(`PAP\nFloor ${floor}`, pairX, labelY, midColFrontZ, { fontSize: 34, scale: 0.5 });
 
-            createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.grey,
-                `<strong>Lobby Area (Floor ${floor})</strong><br>Landing/lobby, middle band centre &mdash; not a residential flat.`);
+            createStructuralUnit(lobbyX, targetY, midZ, lobbyW, bandDepth, blockColors.utility,
+                `<strong>Lobby Area (Floor ${floor})</strong><br>Landing/lobby, middle band centre &mdash; not a flat, common circulation area.`);
             addLabel("Lobby\nArea", lobbyX, labelY, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
 
-            createStructuralUnit(midLeftX, targetY, midZ, midLeftW, bandDepth, blockColors.grey,
-                `<strong>Common Area (Floor ${floor})</strong><br>Left side of the middle band &mdash; not a residential flat.`);
+            createStructuralUnit(midLeftX, targetY, midZ, midLeftW, bandDepth, blockColors.utility,
+                `<strong>Common Area (Floor ${floor})</strong><br>Left side of the middle band &mdash; not a flat, common circulation area.`);
             addLabel("Common\nArea", midLeftX, labelY, midZ, { fontSize: 34, scale: 0.5, color: '#b0bec5' });
 
             // Flat 5: Front Band, right half (Green, salable from 1804 up; Fitness Area on 15th)
             const id04 = `${floor}04`;
-            const isSalable04 = floor >= 18;
+            const isSaleable04 = floor >= 18;
             const isFitness04 = floor === 15;
-            const color04 = isFitness04 ? blockColors.amenity : (isSalable04 ? blockColors.salable : blockColors.green);
+            const color04 = isFitness04 ? blockColors.amenity : (isSaleable04 ? blockColors.salable : blockColors.green);
             const info04 = isFitness04
                 ? `<strong>Fitness Area (Floor ${floor})</strong><br>Community amenity &mdash; right half of the front band, not a habitable flat.`
-                : (isSalable04
-                    ? `<strong>Flat ${id04} (Floor ${floor})</strong><br>Salable`
-                    : `<strong>Flat ${id04} (Floor ${floor})</strong><br>Type: 2 BHK Habitable &mdash; right half of the front band (faces Datta Raul Marg).`);
+                : (isSaleable04
+                    ? `<strong>Flat ${id04} (Floor ${floor})</strong><br>Saleable`
+                    : `<strong>Flat ${id04} (Floor ${floor})</strong><br>Type: 2 BHK REHAB &mdash; right half of the front band (faces Datta Raul Marg).`);
             createStructuralUnit(rightX, targetY, frontZ, halfW, bandDepth, color04, info04, isFitness04 ? null : id04);
             const label04 = isFitness04
                 ? "Fitness\nArea"
-                : (isSalable04 ? `${id04}\nSalable` : (buildingDatabase[id04] ? `${id04}\n${buildingDatabase[id04].occupant}` : id04));
+                : (isSaleable04 ? `${id04}\nSaleable` : (buildingDatabase[id04] ? `${id04}\n${buildingDatabase[id04].occupant}` : id04));
             addLabel(label04, rightX, labelY, frontZ, { fontSize: 34, scale: 0.5 });
 
             // Flat 4: Front Band, left half - Safety Outages at L8/L15
@@ -591,15 +702,15 @@
             } else {
                 // Map regular 3 BHK left-front unit across standard vertical tracks
                 const id05 = `${floor}05`;
-                const isSalable = floor >= 10;
-                const color05 = isSalable ? blockColors.salable : blockColors.blue;
-                const info05 = isSalable
-                    ? `<strong>Flat ${id05} (Floor ${floor})</strong><br>Salable`
-                    : `<strong>Flat ${id05} (Floor ${floor})</strong><br>Type: 3 BHK Premium &mdash; left half of the front band (faces Datta Raul Marg).`;
+                const isSaleable = floor >= 10;
+                const color05 = isSaleable ? blockColors.salable : blockColors.blue;
+                const info05 = isSaleable
+                    ? `<strong>Flat ${id05} (Floor ${floor})</strong><br>Saleable`
+                    : `<strong>Flat ${id05} (Floor ${floor})</strong><br>Type: 3 BHK REHAB &mdash; left half of the front band (faces Datta Raul Marg).`;
                 createStructuralUnit(leftX, targetY, frontZ, halfW, bandDepth, color05,
                     info05, id05);
-                const label05 = isSalable
-                    ? `${id05}\nSalable`
+                const label05 = isSaleable
+                    ? `${id05}\nSaleable`
                     : (buildingDatabase[id05] ? `${id05}\n${buildingDatabase[id05].occupant}` : id05);
                 addLabel(label05, leftX, labelY, frontZ, { fontSize: 34, scale: 0.5 });
             }
