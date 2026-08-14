@@ -447,20 +447,41 @@
         podiumLevels.forEach(lvl => { lvl.h = (lvl.realH / realHTotal) * podiumH; });
 
         let podiumY = 0;
+        // Parking slab stays ONE single block per level, same as before. The
+        // Stairs/Entry Lobby is a separate overlay box in the same footprint used
+        // from the 4th floor upward (X=-7, width 4, Z band -2.5..2.5) - given a
+        // touch of extra height so it reads as a distinct top layer instead of
+        // z-fighting with the coincident top face of the slab beneath it.
+        const pMidZ = 0, pBandD = 5;    // matches the bandDepth/midZ used above
+        const podiumStairsW = 4;
+        const podiumStairsX = -9 + podiumStairsW / 2; // -7
+
         podiumLevels.forEach(lvl => {
+            const y = podiumY + lvl.h / 2;
+
+            // Single full-footprint parking slab
             const geo = new THREE.BoxGeometry(18 - 0.05, lvl.h - 0.04, 15 - 0.05);
             const mat = new THREE.MeshStandardMaterial({ color: blockColors.podium, roughness: 0.7 });
             const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.y = podiumY + lvl.h / 2;
+            mesh.position.set(0, y, 0);
             mesh.userData = { info: `<strong>${lvl.name}</strong><br>${lvl.detail}` };
             scene.add(mesh);
             clickableObjects.push(mesh);
-
             const edgeGeo = new THREE.EdgesGeometry(geo);
-            const edgeMat = new THREE.LineBasicMaterial({ color: 0x555555 });
-            mesh.add(new THREE.LineSegments(edgeGeo, edgeMat));
+            mesh.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x555555 })));
+            addLabel(`${lvl.name}\n${lvl.detail}`, 0, y, 0, { fontSize: 32, scale: 0.5, color: '#e0e0e0' });
 
-            addLabel(`${lvl.name}\n${lvl.detail}`, 0, podiumY + lvl.h / 2, 0, { fontSize: 32, scale: 0.5, color: '#e0e0e0' });
+            // Stairs/Entry Lobby overlay - same footprint as the 4th floor and up
+            const stairsGeo = new THREE.BoxGeometry(podiumStairsW - 0.05, lvl.h - 0.04 + 0.05, pBandD - 0.05);
+            const stairsMat = new THREE.MeshStandardMaterial({ color: blockColors.utility, roughness: 0.7 });
+            const stairsMesh = new THREE.Mesh(stairsGeo, stairsMat);
+            stairsMesh.position.set(podiumStairsX, y, pMidZ);
+            stairsMesh.userData = { info: `<strong>Stairs / Entry Lobby (${lvl.name})</strong><br>Circulation core &mdash; same column that continues up through the tower above.` };
+            scene.add(stairsMesh);
+            clickableObjects.push(stairsMesh);
+            const stairsEdgeGeo = new THREE.EdgesGeometry(stairsGeo);
+            stairsMesh.add(new THREE.LineSegments(stairsEdgeGeo, new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.65 })));
+            addLabel("Stairs /\nEntry", podiumStairsX, y, pMidZ, { fontSize: 28, scale: 0.4, color: '#b0bec5' });
 
             podiumY += lvl.h;
         });
